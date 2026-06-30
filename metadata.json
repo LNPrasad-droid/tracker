@@ -1,0 +1,6 @@
+{
+  "name": "tracker",
+  "description": "Futuristic Personal Productivity Dashboard with a premium cyber-minimalist HUD design, study tracking, task manager, projects, habits, journaling, and integrated analytics.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
