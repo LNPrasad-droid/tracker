@@ -1,65 +1,43 @@
 import { useState } from 'react';
 import GlassCard from './GlassCard';
-import { CheckCircle, Database, Eye, EyeOff, Network, RefreshCw, Server, User, XCircle } from 'lucide-react';
+import { CheckCircle, Database, Network, RefreshCw, Server, XCircle } from 'lucide-react';
+import { leoApi } from '../services/leoApi';
 
-const mysqlConnectionDefaults = {
-  connectionName: import.meta.env.VITE_MYSQL_CONNECTION_NAME || 'tracker',
-  databaseName: import.meta.env.VITE_MYSQL_DATABASE || '',
-  username: import.meta.env.VITE_MYSQL_USER || 'root',
-  host: import.meta.env.VITE_MYSQL_HOST || '127.0.0.1:3306',
-  password: import.meta.env.VITE_MYSQL_PASSWORD || '',
+type DatabaseViewProps = {
+  syncStatus: 'loading' | 'online' | 'offline' | 'saving';
 };
 
 type DatabaseStatus = {
   connected: boolean;
   message: string;
-  serverVersion?: string;
   database?: string;
   checkedAt?: string;
 };
 
-const splitHostAndPort = (value: string) => {
-  const [hostname, portValue] = value.split(':');
-  return {
-    hostname: hostname || '127.0.0.1',
-    port: Number(portValue || 3306),
-  };
-};
+const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || 'same-origin';
+const databaseLabel = import.meta.env.VITE_DATABASE_LABEL || 'Configured MySQL';
 
-export default function DatabaseView() {
-  const [connectionName, setConnectionName] = useState(mysqlConnectionDefaults.connectionName);
-  const [databaseName, setDatabaseName] = useState(mysqlConnectionDefaults.databaseName);
-  const [username, setUsername] = useState(mysqlConnectionDefaults.username);
-  const [host, setHost] = useState(mysqlConnectionDefaults.host);
-  const [password, setPassword] = useState(mysqlConnectionDefaults.password);
-  const [showPassword, setShowPassword] = useState(false);
+export default function DatabaseView({ syncStatus }: DatabaseViewProps) {
   const [isChecking, setIsChecking] = useState(false);
   const [status, setStatus] = useState<DatabaseStatus | null>(null);
 
   const checkConnection = async () => {
-    const { hostname, port } = splitHostAndPort(host);
     setIsChecking(true);
     setStatus(null);
 
     try {
-      const response = await fetch('/api/database/status', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          host: hostname,
-          port,
-          user: username,
-          password,
-          database: databaseName,
-        }),
+      const result = await leoApi.getHealth();
+      setStatus({
+        connected: result.ok,
+        message: result.ok ? 'FastAPI can reach the shared MySQL database.' : 'FastAPI health check failed.',
+        database: result.database,
+        checkedAt: new Date().toISOString(),
       });
-
-      const result = await response.json();
-      setStatus(result);
     } catch (error) {
       setStatus({
         connected: false,
-        message: error instanceof Error ? error.message : 'Unable to reach the database status endpoint.',
+        message: error instanceof Error ? error.message : 'Unable to reach the FastAPI health endpoint.',
+        checkedAt: new Date().toISOString(),
       });
     } finally {
       setIsChecking(false);
@@ -77,7 +55,7 @@ export default function DatabaseView() {
             </span>
           </h2>
           <p className="mt-1 font-mono text-xs tracking-widest text-slate-400">
-            CHECK WHETHER THIS APP CAN AUTHENTICATE WITH YOUR MYSQL SERVER
+            VERIFY FASTAPI, SQLALCHEMY, AND THE SHARED MYSQL STATE STORE
           </p>
         </div>
       </div>
@@ -87,72 +65,26 @@ export default function DatabaseView() {
           <div className="mb-5 flex items-center justify-between">
             <div>
               <h3 className="font-mono text-xs uppercase tracking-widest text-blue-300">Connection Details</h3>
-              <p className="mt-1 text-xs text-slate-500">Used only for the status check.</p>
+              <p className="mt-1 text-xs text-slate-500">Credentials live only on the FastAPI server.</p>
             </div>
             <Database className="h-5 w-5 text-blue-400" />
           </div>
 
           <div className="space-y-4">
-            <label className="block">
-              <span className="mb-1 block font-mono text-[10px] uppercase tracking-wider text-slate-400">Connection Name</span>
-              <input
-                type="text"
-                value={connectionName}
-                onChange={(event) => setConnectionName(event.target.value)}
-                className="w-full rounded-xl border border-white/10 bg-black/40 px-4 py-2.5 font-mono text-sm text-white outline-none transition-colors focus:border-blue-400/60"
-              />
-            </label>
+            <div className="rounded-xl border border-white/10 bg-black/40 px-4 py-3">
+              <span className="mb-1 block font-mono text-[10px] uppercase tracking-wider text-slate-400">API Base URL</span>
+              <p className="break-all font-mono text-sm text-white">{apiBaseUrl}</p>
+            </div>
 
-            <label className="block">
-              <span className="mb-1 block font-mono text-[10px] uppercase tracking-wider text-slate-400">Database Name</span>
-              <input
-                type="text"
-                value={databaseName}
-                onChange={(event) => setDatabaseName(event.target.value)}
-                placeholder="Optional; blank checks server login"
-                className="w-full rounded-xl border border-white/10 bg-black/40 px-4 py-2.5 font-mono text-sm text-white outline-none transition-colors placeholder:text-slate-600 focus:border-blue-400/60"
-              />
-            </label>
+            <div className="rounded-xl border border-white/10 bg-black/40 px-4 py-3">
+              <span className="mb-1 block font-mono text-[10px] uppercase tracking-wider text-slate-400">Database</span>
+              <p className="font-mono text-sm text-white">{databaseLabel}</p>
+            </div>
 
-            <label className="block">
-              <span className="mb-1 block font-mono text-[10px] uppercase tracking-wider text-slate-400">Username</span>
-              <input
-                type="text"
-                value={username}
-                onChange={(event) => setUsername(event.target.value)}
-                className="w-full rounded-xl border border-white/10 bg-black/40 px-4 py-2.5 font-mono text-sm text-white outline-none transition-colors focus:border-blue-400/60"
-              />
-            </label>
-
-            <label className="block">
-              <span className="mb-1 block font-mono text-[10px] uppercase tracking-wider text-slate-400">Host / Port</span>
-              <input
-                type="text"
-                value={host}
-                onChange={(event) => setHost(event.target.value)}
-                className="w-full rounded-xl border border-white/10 bg-black/40 px-4 py-2.5 font-mono text-sm text-white outline-none transition-colors focus:border-blue-400/60"
-              />
-            </label>
-
-            <label className="block">
-              <span className="mb-1 block font-mono text-[10px] uppercase tracking-wider text-slate-400">Password</span>
-              <div className="flex overflow-hidden rounded-xl border border-white/10 bg-black/40 focus-within:border-blue-400/60">
-                <input
-                  type={showPassword ? 'text' : 'password'}
-                  value={password}
-                  onChange={(event) => setPassword(event.target.value)}
-                  className="min-w-0 flex-1 bg-transparent px-4 py-2.5 font-mono text-sm text-white outline-none"
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword((visible) => !visible)}
-                  className="border-l border-white/10 px-3 text-slate-400 transition-colors hover:text-white cursor-pointer"
-                  title={showPassword ? 'Hide password' : 'Show password'}
-                >
-                  {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                </button>
-              </div>
-            </label>
+            <div className="rounded-xl border border-white/10 bg-black/40 px-4 py-3">
+              <span className="mb-1 block font-mono text-[10px] uppercase tracking-wider text-slate-400">Current Sync State</span>
+              <p className="font-mono text-sm uppercase text-white">{syncStatus}</p>
+            </div>
 
             <button
               onClick={checkConnection}
@@ -160,7 +92,7 @@ export default function DatabaseView() {
               className="flex w-full items-center justify-center gap-2 rounded-xl bg-blue-600 px-4 py-3 font-mono text-xs font-bold uppercase tracking-wider text-white shadow-lg shadow-blue-500/20 transition-all hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-60 cursor-pointer"
             >
               {isChecking ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Network className="h-4 w-4" />}
-              {isChecking ? 'Checking Connection' : 'Check Database Connection'}
+              {isChecking ? 'Checking Connection' : 'Check Backend Connection'}
             </button>
           </div>
         </GlassCard>
@@ -172,9 +104,9 @@ export default function DatabaseView() {
                 <div className="mx-auto mb-5 flex h-20 w-20 items-center justify-center rounded-3xl border border-blue-400/20 bg-blue-500/10">
                   <Server className="h-9 w-9 text-blue-300" />
                 </div>
-                <h3 className="text-xl font-semibold text-white">Ready to check MySQL</h3>
+                <h3 className="text-xl font-semibold text-white">Ready to check FastAPI</h3>
                 <p className="mt-2 text-sm leading-6 text-slate-400">
-                  Click the button to verify the app can reach MySQL and authenticate with the configured credentials.
+                  Click the button to verify the deployed API can reach the shared MySQL database.
                 </p>
               </div>
             )}
@@ -182,8 +114,8 @@ export default function DatabaseView() {
             {isChecking && (
               <div className="mx-auto max-w-md text-center">
                 <RefreshCw className="mx-auto mb-5 h-12 w-12 animate-spin text-blue-300" />
-                <h3 className="text-xl font-semibold text-white">Checking database connection...</h3>
-                <p className="mt-2 text-sm text-slate-400">Testing host reachability and MySQL authentication.</p>
+                <h3 className="text-xl font-semibold text-white">Checking backend connection...</h3>
+                <p className="mt-2 text-sm text-slate-400">Testing API reachability and SQLAlchemy connectivity.</p>
               </div>
             )}
 
@@ -218,28 +150,28 @@ export default function DatabaseView() {
                         <Database className="h-3.5 w-3.5" />
                         DATABASE
                       </div>
-                      <p className="text-white">{status.database || databaseName || 'Server login only'}</p>
+                      <p className="text-white">{status.database || databaseLabel}</p>
                     </div>
                     <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
                       <div className="mb-1 flex items-center gap-2 text-slate-500">
                         <Network className="h-3.5 w-3.5" />
-                        HOST
+                        API
                       </div>
-                      <p className="text-white">{host}</p>
+                      <p className="break-all text-white">{apiBaseUrl}</p>
                     </div>
                     <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
                       <div className="mb-1 flex items-center gap-2 text-slate-500">
-                        <User className="h-3.5 w-3.5" />
-                        USER
+                        <RefreshCw className="h-3.5 w-3.5" />
+                        SYNC
                       </div>
-                      <p className="text-white">{username}</p>
+                      <p className="uppercase text-white">{syncStatus}</p>
                     </div>
                     <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
                       <div className="mb-1 flex items-center gap-2 text-slate-500">
                         <Server className="h-3.5 w-3.5" />
-                        SERVER
+                        CHECKED
                       </div>
-                      <p className="truncate text-white">{status.serverVersion || 'Unavailable'}</p>
+                      <p className="truncate text-white">{status.checkedAt || 'Unavailable'}</p>
                     </div>
                   </div>
                 </div>

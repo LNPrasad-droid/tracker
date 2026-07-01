@@ -83,6 +83,7 @@ export interface SystemSettings {
   themeColor: 'blue' | 'cyan' | 'emerald' | 'amber' | 'rose' | 'violet';
   soundEnabled: boolean;
   autoSaveCloud: boolean;
+  quickNote?: string;
 }
 
 export interface LeoOSState {

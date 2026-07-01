@@ -1,6 +1,7 @@
-import { useState, useEffect } from 'react';
+import { FormEvent, lazy, Suspense, useEffect, useState } from 'react';
 import { LeoOSState, Task, StudySession, Project, Milestone, Habit, HabitLog, JournalEntry } from './types';
 import { DEFAULT_STATE } from './data/defaultState';
+import { LEO_USER_PASSWORD, LEO_USERS, LeoUser, leoApi } from './services/leoApi';
 
 // Main layout components
 import SplashScreen from './components/SplashScreen';
@@ -8,16 +9,17 @@ import ParticleCanvas from './components/ParticleCanvas';
 import GlassCard from './components/GlassCard';
 
 // Core module sub-views
-import DashboardView from './components/DashboardView';
-import StudyTrackerView from './components/StudyTrackerView';
-import TaskManagerView from './components/TaskManagerView';
-import ProjectManagerView from './components/ProjectManagerView';
-import HabitTrackerView from './components/HabitTrackerView';
-import JournalView from './components/JournalView';
-import CalendarView from './components/CalendarView';
-import AnalyticsView from './components/AnalyticsView';
-import DatabaseView from './components/DatabaseView';
 import LionLogo from './components/LionLogo';
+
+const DashboardView = lazy(() => import('./components/DashboardView'));
+const StudyTrackerView = lazy(() => import('./components/StudyTrackerView'));
+const TaskManagerView = lazy(() => import('./components/TaskManagerView'));
+const ProjectManagerView = lazy(() => import('./components/ProjectManagerView'));
+const HabitTrackerView = lazy(() => import('./components/HabitTrackerView'));
+const JournalView = lazy(() => import('./components/JournalView'));
+const CalendarView = lazy(() => import('./components/CalendarView'));
+const AnalyticsView = lazy(() => import('./components/AnalyticsView'));
+const DatabaseView = lazy(() => import('./components/DatabaseView'));
 
 // Icons
 import {
@@ -29,11 +31,12 @@ import {
   BookMarked,
   Calendar as CalendarIcon,
   BarChart3,
-  Monitor,
   Database,
   Volume2,
   VolumeX,
-  Clock
+  Clock,
+  LockKeyhole,
+  UserRound
 } from 'lucide-react';
 
 const demoRecordIds = {
@@ -63,25 +66,54 @@ export default function App() {
   const [state, setState] = useState<LeoOSState>(DEFAULT_STATE);
   const [soundEnabled, setSoundEnabled] = useState(true);
   const [currentTime, setCurrentTime] = useState('');
+  const [syncStatus, setSyncStatus] = useState<'loading' | 'online' | 'offline' | 'saving'>('loading');
+  const [selectedUser, setSelectedUser] = useState<LeoUser>('Leo');
+  const [currentUser, setCurrentUser] = useState<LeoUser | null>(null);
+  const [passwordInput, setPasswordInput] = useState('');
+  const [loginError, setLoginError] = useState('');
 
-  // 1. Initial State Load from LocalStorage
+  // 1. Initial State Load from shared FastAPI/MySQL backend
   useEffect(() => {
-    const cachedState = localStorage.getItem('leo_os_state_v26');
-    if (cachedState) {
-      try {
-        const cleanedState = removeDemoRecords(JSON.parse(cachedState));
-        setState(cleanedState);
-        localStorage.setItem('leo_os_state_v26', JSON.stringify(cleanedState));
-      } catch (e) {
-        console.error('Failed to reconstruct Leo OS state from LocalStorage cache', e);
-      }
-    }
-  }, []);
+    if (!currentUser) return;
+    let isMounted = true;
 
-  // Sync state changes to LocalStorage
-  const saveState = (newState: LeoOSState) => {
+    const loadState = async () => {
+      try {
+        const serverState = removeDemoRecords(await leoApi.getState(currentUser));
+        if (!isMounted) return;
+        setState(serverState);
+        setSoundEnabled(serverState.settings.soundEnabled);
+        setSyncStatus('online');
+      } catch (error) {
+        console.error('Failed to load Leo OS state from FastAPI', error);
+        if (isMounted) setSyncStatus('offline');
+      }
+    };
+
+    loadState();
+    const interval = window.setInterval(loadState, 30000);
+
+    return () => {
+      isMounted = false;
+      window.clearInterval(interval);
+    };
+  }, [currentUser]);
+
+  // Sync state changes to FastAPI. The PWA service worker queues writes while offline.
+  const saveState = async (newState: LeoOSState) => {
+    if (!currentUser) return;
     setState(newState);
-    localStorage.setItem('leo_os_state_v26', JSON.stringify(newState));
+    setSyncStatus(navigator.onLine ? 'saving' : 'offline');
+
+    try {
+      const persistedState = await leoApi.saveState(currentUser, newState);
+      setState(persistedState);
+      setSoundEnabled(persistedState.settings.soundEnabled);
+      setSyncStatus('online');
+    } catch (error) {
+      console.error('Failed to persist Leo OS state through FastAPI', error);
+      setSyncStatus('offline');
+    }
   };
 
   // 2. Real-time UTC clock updater
@@ -111,7 +143,7 @@ export default function App() {
       ...state,
       tasks: [...state.tasks, newTask],
     };
-    saveState(updated);
+    void saveState(updated);
   };
 
   const handleToggleTask = (taskId: string) => {
@@ -131,7 +163,7 @@ export default function App() {
       ...state,
       tasks: updatedTasks,
     };
-    saveState(updated);
+    void saveState(updated);
   };
 
   const handleDeleteTask = (taskId: string) => {
@@ -139,7 +171,7 @@ export default function App() {
       ...state,
       tasks: state.tasks.filter((t) => t.id !== taskId),
     };
-    saveState(updated);
+    void saveState(updated);
   };
 
   // B. Study Sessions controller
@@ -153,7 +185,7 @@ export default function App() {
       ...state,
       studySessions: [...state.studySessions, newSession],
     };
-    saveState(updated);
+    void saveState(updated);
   };
 
   const handleDeleteStudySession = (id: string) => {
@@ -161,7 +193,7 @@ export default function App() {
       ...state,
       studySessions: state.studySessions.filter((s) => s.id !== id),
     };
-    saveState(updated);
+    void saveState(updated);
   };
 
   // C. Projects controller
@@ -175,7 +207,7 @@ export default function App() {
       ...state,
       projects: [...state.projects, newProject],
     };
-    saveState(updated);
+    void saveState(updated);
   };
 
   const handleAddMilestone = (milestoneData: Omit<Milestone, 'id' | 'completed'>) => {
@@ -188,7 +220,7 @@ export default function App() {
       ...state,
       milestones: [...state.milestones, newMilestone],
     };
-    saveState(updated);
+    void saveState(updated);
   };
 
   const handleToggleMilestone = (milestoneId: string) => {
@@ -206,7 +238,7 @@ export default function App() {
       ...state,
       milestones: updatedMilestones,
     };
-    saveState(updated);
+    void saveState(updated);
   };
 
   // D. Habits controller
@@ -222,7 +254,7 @@ export default function App() {
       ...state,
       habits: [...state.habits, newHabit],
     };
-    saveState(updated);
+    void saveState(updated);
   };
 
   const handleToggleHabitLog = (habitId: string, date: string) => {
@@ -278,7 +310,7 @@ export default function App() {
       habitLogs: updatedLogs,
       habits: updatedHabits,
     };
-    saveState(updated);
+    void saveState(updated);
   };
 
   const handleDeleteHabit = (id: string) => {
@@ -287,7 +319,7 @@ export default function App() {
       habits: state.habits.filter((h) => h.id !== id),
       habitLogs: state.habitLogs.filter((l) => l.habitId !== id),
     };
-    saveState(updated);
+    void saveState(updated);
   };
 
   // E. Journal controller
@@ -303,7 +335,7 @@ export default function App() {
       ...state,
       journalEntries: [...state.journalEntries, newEntry],
     };
-    saveState(updated);
+    void saveState(updated);
   };
 
   const handleDeleteJournalEntry = (id: string) => {
@@ -311,7 +343,54 @@ export default function App() {
       ...state,
       journalEntries: state.journalEntries.filter((e) => e.id !== id),
     };
-    saveState(updated);
+    void saveState(updated);
+  };
+
+  const handleUpdateQuickNote = (quickNote: string) => {
+    const updated = {
+      ...state,
+      settings: {
+        ...state.settings,
+        quickNote,
+      },
+    };
+    void saveState(updated);
+  };
+
+  const handleToggleSound = () => {
+    const nextSoundEnabled = !soundEnabled;
+    setSoundEnabled(nextSoundEnabled);
+    const updated = {
+      ...state,
+      settings: {
+        ...state.settings,
+        soundEnabled: nextSoundEnabled,
+      },
+    };
+    void saveState(updated);
+  };
+
+  const handleLogin = (event: FormEvent) => {
+    event.preventDefault();
+    if (passwordInput !== LEO_USER_PASSWORD) {
+      setLoginError('ACCESS DENIED // INVALID PASSWORD');
+      return;
+    }
+
+    const userState = {
+      ...DEFAULT_STATE,
+      settings: {
+        ...DEFAULT_STATE.settings,
+        userName: selectedUser,
+      },
+    };
+
+    setCurrentUser(selectedUser);
+    setState(userState);
+    setSoundEnabled(userState.settings.soundEnabled);
+    setPasswordInput('');
+    setLoginError('');
+    setSyncStatus('loading');
   };
 
   // ---------------------------------------------------------------------------
@@ -326,8 +405,10 @@ export default function App() {
             studySessions={state.studySessions}
             projects={state.projects}
             habits={state.habits}
+            quickNote={state.settings.quickNote || ''}
             onNavigate={setActiveTab}
             onToggleTask={handleToggleTask}
+            onUpdateQuickNote={handleUpdateQuickNote}
           />
         );
       case 'study':
@@ -396,7 +477,7 @@ export default function App() {
           />
         );
       case 'database':
-        return <DatabaseView />;
+        return <DatabaseView syncStatus={syncStatus} />;
       default:
         return <div className="text-white font-mono uppercase text-xs">&gt; SYS_FATAL_ERROR: TAB_NOT_RESOLVED</div>;
     }
@@ -414,6 +495,70 @@ export default function App() {
     { id: 'analytics', label: 'ANALYTICS', icon: BarChart3 },
     { id: 'database', label: 'MYSQL_DATABASE', icon: Database },
   ];
+
+  if (!currentUser) {
+    return (
+      <div className="relative min-h-screen bg-[#050505] text-slate-100 font-sans flex items-center justify-center p-6 select-none">
+        <ParticleCanvas />
+        <GlassCard borderAccent className="relative z-10 w-full max-w-md p-6">
+          <div className="mb-6 flex items-center gap-3">
+            <LionLogo className="h-10 w-10" animated={false} />
+            <div>
+              <h1 className="text-sm font-black tracking-[0.25em] text-white font-sans">LEO OS</h1>
+              <p className="mt-1 text-[9px] font-mono uppercase tracking-widest text-blue-400">AUTHORIZED_USERS_ONLY</p>
+            </div>
+          </div>
+
+          <form onSubmit={handleLogin} className="space-y-4">
+            <div>
+              <label className="mb-2 block text-[10px] font-mono uppercase tracking-widest text-slate-400">Select User</label>
+              <div className="grid grid-cols-2 gap-2">
+                {LEO_USERS.map((user) => (
+                  <button
+                    key={user}
+                    type="button"
+                    onClick={() => setSelectedUser(user)}
+                    className={`flex items-center justify-center gap-2 rounded-xl border px-4 py-3 font-mono text-xs uppercase tracking-widest transition-colors cursor-pointer ${
+                      selectedUser === user
+                        ? 'border-blue-400/40 bg-blue-500/15 text-blue-200'
+                        : 'border-white/10 bg-black/30 text-slate-400 hover:text-slate-200'
+                    }`}
+                  >
+                    <UserRound className="h-4 w-4" />
+                    {user}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <label className="block">
+              <span className="mb-2 block text-[10px] font-mono uppercase tracking-widest text-slate-400">Password</span>
+              <div className="flex items-center gap-3 rounded-xl border border-white/10 bg-black/40 px-4 py-3 focus-within:border-blue-400/60">
+                <LockKeyhole className="h-4 w-4 text-blue-300" />
+                <input
+                  type="password"
+                  value={passwordInput}
+                  onChange={(event) => setPasswordInput(event.target.value)}
+                  autoFocus
+                  className="min-w-0 flex-1 bg-transparent font-mono text-sm text-white outline-none placeholder:text-slate-600"
+                  placeholder="Enter access code"
+                />
+              </div>
+            </label>
+
+            {loginError && <p className="text-[10px] font-mono uppercase tracking-widest text-rose-300">{loginError}</p>}
+
+            <button
+              type="submit"
+              className="w-full rounded-xl bg-blue-600 px-4 py-3 font-mono text-xs font-bold uppercase tracking-widest text-white shadow-lg shadow-blue-500/20 transition-all hover:bg-blue-500 active:scale-95 cursor-pointer"
+            >
+              UNLOCK_PROFILE
+            </button>
+          </form>
+        </GlassCard>
+      </div>
+    );
+  }
 
   if (!booted) {
     return <SplashScreen onComplete={() => setBooted(true)} />;
@@ -466,11 +611,11 @@ export default function App() {
         <div className="p-4 border-t border-white/5 flex items-center justify-between bg-black/20 font-mono text-[9px] text-slate-500">
           <div className="flex items-center gap-2">
             <Database className="w-3.5 h-3.5 text-slate-600 animate-pulse" />
-            <span>BUFFER_LOCAL</span>
+            <span>{syncStatus === 'online' ? 'MYSQL_SYNC' : syncStatus === 'saving' ? 'SYNCING' : 'OFFLINE_QUEUE'}</span>
           </div>
 
           <button
-            onClick={() => setSoundEnabled(!soundEnabled)}
+            onClick={handleToggleSound}
             className="p-1 rounded-lg hover:bg-white/5 text-slate-500 hover:text-slate-300 transition-colors cursor-pointer"
           >
             {soundEnabled ? <Volume2 className="w-3.5 h-3.5 text-blue-500" /> : <VolumeX className="w-3.5 h-3.5" />}
@@ -502,7 +647,9 @@ export default function App() {
 
         {/* Scrollable primary display area */}
         <div className="flex-1 overflow-y-auto p-6 md:p-8 max-w-7xl w-full mx-auto relative z-10">
-          {renderActiveView()}
+          <Suspense fallback={<div className="text-white font-mono uppercase text-xs">&gt; LOADING_MODULE...</div>}>
+            {renderActiveView()}
+          </Suspense>
         </div>
       </main>
     </div>

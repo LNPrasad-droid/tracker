@@ -8,8 +8,10 @@ interface DashboardViewProps {
   studySessions: StudySession[];
   projects: Project[];
   habits: Habit[];
+  quickNote: string;
   onNavigate: (tab: string) => void;
   onToggleTask: (taskId: string) => void;
+  onUpdateQuickNote: (quickNote: string) => void;
 }
 
 export default function DashboardView({
@@ -17,26 +19,34 @@ export default function DashboardView({
   studySessions,
   projects,
   habits,
+  quickNote,
   onNavigate,
   onToggleTask,
+  onUpdateQuickNote,
 }: DashboardViewProps) {
-  const [quickNote, setQuickNote] = useState('');
+  const [draftQuickNote, setDraftQuickNote] = useState(quickNote);
 
-  // Load quick note from LocalStorage on mount
   useEffect(() => {
-    const savedNote = localStorage.getItem('leo_quick_note');
-    if (savedNote) setQuickNote(savedNote);
-  }, []);
+    setDraftQuickNote(quickNote);
+  }, [quickNote]);
+
+  useEffect(() => {
+    const timeoutId = window.setTimeout(() => {
+      if (draftQuickNote !== quickNote) {
+        onUpdateQuickNote(draftQuickNote);
+      }
+    }, 600);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [draftQuickNote, onUpdateQuickNote, quickNote]);
 
   const handleQuickNoteChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    const value = e.target.value;
-    setQuickNote(value);
-    localStorage.setItem('leo_quick_note', value);
+    setDraftQuickNote(e.target.value);
   };
 
   const handleClearQuickNote = () => {
-    setQuickNote('');
-    localStorage.removeItem('leo_quick_note');
+    setDraftQuickNote('');
+    onUpdateQuickNote('');
   };
 
   // Get current date representation
@@ -317,9 +327,9 @@ export default function DashboardView({
                   </span>
                   Quick Notes
                 </h3>
-                <p className="mt-1 text-[11px] text-slate-500">Private notes saved in this browser.</p>
+                <p className="mt-1 text-[11px] text-slate-500">Private notes synced through Leo OS.</p>
               </div>
-              {quickNote && (
+              {draftQuickNote && (
                 <button
                   onClick={handleClearQuickNote}
                   className="rounded-lg border border-white/10 bg-white/[0.03] p-2 text-slate-500 transition-colors hover:border-red-400/30 hover:text-red-300 cursor-pointer"
@@ -332,12 +342,12 @@ export default function DashboardView({
             <textarea
               className="quick-note-scrollbar w-full flex-1 resize-none rounded-2xl border border-blue-400/20 bg-slate-950/80 p-4 text-sm leading-6 text-slate-200 outline-none transition-all placeholder:text-slate-600 focus:border-blue-300/50 focus:ring-4 focus:ring-blue-500/10"
               placeholder="Write a quick note, formula, idea, or reminder..."
-              value={quickNote}
+              value={draftQuickNote}
               onChange={handleQuickNoteChange}
             />
             <div className="mt-3 flex items-center justify-between text-[10px] font-mono uppercase tracking-wider text-slate-500">
-              <span>{quickNote.length} characters</span>
-              <span className="text-blue-300/70">Saved locally</span>
+              <span>{draftQuickNote.length} characters</span>
+              <span className="text-blue-300/70">Synced to MySQL</span>
             </div>
           </GlassCard>
         </div>

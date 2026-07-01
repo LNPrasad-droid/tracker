@@ -46,6 +46,7 @@ export default function ParticleCanvas() {
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
+    const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
@@ -60,7 +61,7 @@ export default function ParticleCanvas() {
     ctx.scale(dpr, dpr);
 
     // Initialize Neural Network Nodes (fixed and moving clusters)
-    const nodeCount = Math.min(25, Math.floor((width * height) / 35000));
+    const nodeCount = prefersReducedMotion ? 8 : Math.min(22, Math.floor((width * height) / 42000));
     const nodes: Node[] = [];
 
     for (let i = 0; i < nodeCount; i++) {
@@ -77,7 +78,7 @@ export default function ParticleCanvas() {
     }
 
     // Interactive Floating Particles (finer dust)
-    const particleCount = Math.min(60, Math.floor((width * height) / 18000));
+    const particleCount = prefersReducedMotion ? 12 : Math.min(44, Math.floor((width * height) / 24000));
     const particles: Particle[] = [];
 
     for (let i = 0; i < particleCount; i++) {
@@ -92,7 +93,7 @@ export default function ParticleCanvas() {
       });
     }
 
-    let animationFrameId: number;
+    let animationFrameId = 0;
 
     const draw = () => {
       ctx.clearRect(0, 0, width, height);
@@ -234,13 +235,26 @@ export default function ParticleCanvas() {
       ctx.arc(coreX, coreY, 200, Math.PI, Math.PI * 2);
       ctx.fill();
 
-      animationFrameId = requestAnimationFrame(draw);
+      if (!document.hidden && !prefersReducedMotion) {
+        animationFrameId = requestAnimationFrame(draw);
+      } else {
+        animationFrameId = 0;
+      }
     };
 
     draw();
 
+    const handleVisibilityChange = () => {
+      if (!document.hidden && !animationFrameId && !prefersReducedMotion) {
+        animationFrameId = requestAnimationFrame(draw);
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
     return () => {
       cancelAnimationFrame(animationFrameId);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
   }, [dimensions]);
 
